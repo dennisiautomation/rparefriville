@@ -42,7 +42,7 @@ logger = logging.getLogger(__name__)
 class LeverosRPA:
     """Classe principal do RPA para extração de dados da Leveros Integra"""
     
-    def __init__(self):
+    def __init__(self, headless=False):
         """Inicializa o RPA com as configurações básicas"""
         self.url_login = "https://leverosintegra.dev.br/login"
         self.usuario = "22429301000178@22429301000178"
@@ -57,6 +57,7 @@ class LeverosRPA:
         self.timestamp = datetime.now().strftime('%Y%m%d_%H%M%S')
         self.arquivo_excel = f"ProdutosLeveros_{self.timestamp}.xlsx"
         self.arquivo_pdf = f"ProdutosLeveros_{self.timestamp}.pdf"
+        self.headless = headless
         
         # Seletores CSS para os elementos de interesse
         self.seletores = {
@@ -92,7 +93,8 @@ class LeverosRPA:
             opcoes.add_argument("--disable-popup-blocking")
             
             # Para testes, deixamos o navegador visível, mas em produção pode ser headless
-            # opcoes.add_argument("--headless")
+            if self.headless:
+                opcoes.add_argument("--headless")
             
             # Configuração específica para Mac com chips M1/M2
             if plataforma == "Darwin" and arquitetura == "arm64":
@@ -528,6 +530,24 @@ class LeverosRPA:
                     return "";
                 }
                 
+                function getPublicImageUrl(privateUrl) {
+                    // Extrair o ID da imagem ou caminho da URL privada
+                    if (!privateUrl || privateUrl === 'N/A') return 'N/A';
+                    
+                    try {
+                        // Tentar extrair o nome do arquivo da URL
+                        const urlObj = new URL(privateUrl);
+                        const pathname = urlObj.pathname;
+                        const filename = pathname.split('/').pop();
+                        
+                        // Construir URL pública baseada no domínio de vendas da Leveros
+                        return `https://www.vendas.leveros.com.br/upload/produto/imagem/${filename}`;
+                    } catch (e) {
+                        // Se falhar, retornar a URL original
+                        return privateUrl;
+                    }
+                }
+                
                 const result = {};
                 
                 // Nome do produto
@@ -550,8 +570,11 @@ class LeverosRPA:
                     result.precoVista = getTextOrDefault(arguments[0], 'div.text-caption');
                 }
                 
-                // URL da imagem
+                // URL da imagem privada (área logada)
                 result.urlImagem = getAttributeOrDefault(arguments[0], 'div.q-img img', 'src');
+                
+                // URL pública da imagem
+                result.urlImagemPublica = getPublicImageUrl(result.urlImagem);
                 
                 return result;
                 """
@@ -580,7 +603,8 @@ class LeverosRPA:
                     "Preço à Vista": resultado.get('precoVista', 'N/A'),
                     "Qtd. Parcelas": qtd_parcelas,
                     "Valor Parcela": valor_parcela,
-                    "URL da Imagem": resultado.get('urlImagem', 'N/A')
+                    "URL da Imagem": resultado.get('urlImagem', 'N/A'),
+                    "URL Pública da Imagem": resultado.get('urlImagemPublica', 'N/A')
                 }
                 
                 logger.info(f"Produto extraído: {resultado.get('nome', 'N/A')}")
@@ -699,6 +723,7 @@ class LeverosRPA:
             worksheet.set_column('D:E', 15)  # Preços
             worksheet.set_column('F:G', 15)  # Parcelas
             worksheet.set_column('H:H', 40)  # URL da Imagem
+            worksheet.set_column('I:I', 40)  # URL Pública da Imagem
             
             # Adiciona filtros automáticos
             worksheet.autofilter(0, 0, len(df), len(df.columns) - 1)
@@ -721,9 +746,6 @@ class LeverosRPA:
         agora = datetime.now()
         timestamp = agora.strftime("%Y%m%d_%H%M%S")
         filename = f"ProdutosLeveros_{timestamp}.pdf"
-        
-        # Criar um diretório temporário para armazenar as imagens baixadas
-        temp_dir = tempfile.mkdtemp()
         
         try:
             pdf = FPDF()
@@ -773,62 +795,37 @@ class LeverosRPA:
                         if 'Modelo' in produto:
                             pdf.cell(0, 8, txt=f"Modelo: {produto['Modelo']}", ln=True)
                         
-                        # Tentar baixar e incluir a imagem
-                        img_url = produto.get('URL da Imagem', '')
-                        if img_url:
-                            try:
-                                # Baixar a imagem
-                                response = requests.get(img_url, timeout=10)
-                                
-                                if response.status_code == 200:
-                                    # Definir um nome para o arquivo temporário
-                                    parsed_url = urlparse(img_url)
-                                    img_filename = os.path.basename(parsed_url.path)
-                                    if not img_filename:
-                                        img_filename = f"produto_{idx}_{timestamp}.jpg"
-                                    
-                                    # Verificar extensão da imagem para tratar WebP
-                                    img_ext = os.path.splitext(img_filename)[1].lower()
-                                    
-                                    # Nome para a imagem convertida
-                                    jpeg_filename = f"produto_{idx}_{timestamp}.jpg"
-                                    jpeg_path = os.path.join(temp_dir, jpeg_filename)
-                                    
-                                    # Salvar a imagem temporariamente
-                                    img_data = BytesIO(response.content)
-                                    
-                                    # Usar PIL para abrir a imagem (suporta WebP) e converter para JPEG
-                                    try:
-                                        img = Image.open(img_data)
-                                        # Converter para RGB se for necessário (para imagens com transparência)
-                                        if img.mode in ('RGBA', 'LA') or (img.mode == 'P' and 'transparency' in img.info):
-                                            bg = Image.new('RGB', img.size, (255, 255, 255))
-                                            bg.paste(img, mask=img.split()[3] if img.mode == 'RGBA' else None)
-                                            img = bg
-                                        # Salvar como JPEG
-                                        img.save(jpeg_path, 'JPEG', quality=85)
-                                        
-                                        # Adicionar a imagem ao PDF
-                                        max_width = 100
-                                        pdf.image(jpeg_path, x=10, w=max_width)
-                                        pdf.ln(5)
-                                    except Exception as img_error:
-                                        logging.error(f"Erro ao processar imagem: {str(img_error)}")
-                                        pdf.cell(0, 8, txt=f"[Erro ao processar imagem: {str(img_error)}]", ln=True)
-                                        pdf.cell(0, 8, txt=f"URL da Imagem: {img_url}", ln=True)
-                                else:
-                                    pdf.cell(0, 8, txt=f"[Não foi possível baixar a imagem. Código: {response.status_code}]", ln=True)
-                                    pdf.cell(0, 8, txt=f"URL da Imagem: {img_url}", ln=True)
-                            except Exception as e:
-                                logging.error(f"Erro ao baixar imagem: {str(e)}")
-                                pdf.cell(0, 8, txt=f"[Erro ao baixar imagem: {str(e)}]", ln=True)
-                                pdf.cell(0, 8, txt=f"URL da Imagem: {img_url}", ln=True)
+                        # Adicionar link da imagem com texto amigável
+                        img_url = produto.get('URL Pública da Imagem', '')
+                        if img_url and img_url != 'N/A':
+                            # Texto explicativo acima do link
+                            pdf.set_font("Arial", "", 10)
+                            pdf.set_text_color(0, 0, 0)  # Preto
+                            pdf.cell(0, 8, txt="Segue link da foto do produto:", ln=True)
+                            
+                            # Texto do link
+                            link_text = "LINK PARA FOTO DO PRODUTO (Clique para visualizar)"
+                            
+                            # Configurar fonte e cor para o link
+                            pdf.set_font("Arial", "BU", 10)  # Negrito e Sublinhado
+                            pdf.set_text_color(0, 0, 255)   # Azul
+                            
+                            # Obter largura do texto para calcular posição X
+                            link_width = pdf.get_string_width(link_text)
+                            
+                            # Adicionar o texto com link
+                            pdf.cell(link_width, 8, txt=link_text, link=img_url)
+                            pdf.ln()
+                            
+                            # Restaurar fonte e cor
+                            pdf.set_text_color(0, 0, 0)  # Preto
+                            pdf.set_font("Arial", "", 10)  # Normal
                         else:
-                            pdf.cell(0, 8, txt="[Imagem não disponível]", ln=True)
+                            pdf.cell(0, 8, txt="Foto do produto: Não disponível", ln=True)
                         
                         # Adicionar outras informações do produto
                         for chave, valor in produto.items():
-                            if chave not in ['Nome do Produto', 'Categoria', 'Modelo', 'URL da Imagem']:
+                            if chave not in ['Nome do Produto', 'Categoria', 'Modelo', 'URL da Imagem', 'URL Pública da Imagem']:
                                 pdf.cell(0, 8, txt=f"{chave}: {valor}", ln=True)
                         
                         pdf.ln(8)  # Espaço entre produtos
@@ -844,14 +841,6 @@ class LeverosRPA:
             
         except Exception as e:
             logging.error(f"Erro ao salvar PDF: {str(e)}")
-        finally:
-            # Limpar o diretório temporário
-            try:
-                for file in os.listdir(temp_dir):
-                    os.remove(os.path.join(temp_dir, file))
-                os.rmdir(temp_dir)
-            except Exception as e:
-                logging.error(f"Erro ao limpar diretório temporário: {str(e)}")
     
     def executar(self):
         """Executa o fluxo completo do RPA"""
@@ -900,6 +889,11 @@ class LeverosRPA:
 
 
 if __name__ == "__main__":
+    # Verifica argumentos de linha de comando
+    import sys
+    headless_mode = "--headless" in sys.argv
+    
     # Executa o RPA
-    rpa = LeverosRPA()
+    logger.info(f"Iniciando RPA em modo {'headless' if headless_mode else 'normal'}")
+    rpa = LeverosRPA(headless=headless_mode)
     rpa.executar()
