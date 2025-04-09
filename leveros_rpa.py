@@ -808,19 +808,12 @@ class LeverosRPA:
                             pdf.set_text_color(0, 0, 0)  # Preto
                             pdf.cell(0, 8, txt="Segue link da foto do produto:", ln=True)
                             
-                            # Texto do link
-                            link_text = "LINK PARA FOTO DO PRODUTO (Clique para visualizar)"
-                            
-                            # Configurar fonte e cor para o link
-                            pdf.set_font("Arial", "BU", 10)  # Negrito e Sublinhado
+                            # Mostrar o link explícito
+                            pdf.set_font("Arial", "BU", 8)  # Negrito e Sublinhado, fonte menor para caber o link
                             pdf.set_text_color(0, 0, 255)   # Azul
                             
-                            # Obter largura do texto para calcular posição X
-                            link_width = pdf.get_string_width(link_text)
-                            
-                            # Adicionar o texto com link
-                            pdf.cell(link_width, 8, txt=link_text, link=img_url)
-                            pdf.ln()
+                            # Adicionar o link explícito
+                            pdf.cell(0, 8, txt=img_url, link=img_url, ln=True)
                             
                             # Restaurar fonte e cor
                             pdf.set_text_color(0, 0, 0)  # Preto
