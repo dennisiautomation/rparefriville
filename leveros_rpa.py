@@ -474,7 +474,12 @@ class LeverosRPA:
                     logger.info(f"Processando produto {i}/{len(cards)}...")
                     produto = self.extrair_dados_produto(card, categoria)
                     if produto:
-                        produtos.append(produto)
+                        # Verificar se o nome do produto contém "instalação" (case insensitive)
+                        nome_produto = produto.get("Nome do Produto", "").lower()
+                        if "instalacao" in nome_produto or "instalação" in nome_produto:
+                            logger.info(f"Produto ignorado por conter 'instalação' no nome: {produto.get('Nome do Produto')}")
+                        else:
+                            produtos.append(produto)
                 
                 # Se tivemos sucesso, sair do loop
                 break
