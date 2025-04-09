@@ -744,7 +744,7 @@ class LeverosRPA:
     
     def salvar_dados_pdf(self):
         """
-        Salva os dados extraídos em um arquivo PDF.
+        Salva os dados extraídos em um arquivo PDF em formato tabular.
         """
         logging.info("Salvando dados em PDF...")
         
@@ -755,7 +755,7 @@ class LeverosRPA:
         try:
             pdf = FPDF()
             pdf.set_auto_page_break(auto=True, margin=15)
-            pdf.add_page()
+            pdf.add_page("L")  # Landscape para ter mais espaço para as colunas
             
             # Título
             pdf.set_font("Arial", "B", 16)
@@ -763,74 +763,115 @@ class LeverosRPA:
             pdf.ln(5)
             
             # Data de geração
-            pdf.set_font("Arial", "", 12)
-            pdf.cell(0, 8, txt=f"Data de geração: {agora.strftime('%d/%m/%Y %H:%M')}", ln=True)
+            pdf.set_font("Arial", "", 10)
+            pdf.cell(0, 6, txt=f"Data de geração: {agora.strftime('%d/%m/%Y %H:%M')}", ln=True)
             
             # Total de produtos
             total_produtos = len(self.dados_produtos)
-            pdf.cell(0, 8, txt=f"Total de produtos: {total_produtos}", ln=True)
+            pdf.cell(0, 6, txt=f"Total de produtos: {total_produtos}", ln=True)
             
-            pdf.ln(10)
-            
-            # Página de resumo - contagem por categoria
-            pdf.set_font("Arial", "B", 14)
-            pdf.cell(0, 10, txt="Resumo por Categoria", ln=True)
             pdf.ln(5)
             
-            pdf.set_font("Arial", "", 12)
-            for categoria in self.categorias:
-                produtos_categoria = [p for p in self.dados_produtos if p['Categoria'] == categoria]
-                pdf.cell(0, 8, txt=f"{categoria}: {len(produtos_categoria)} produtos", ln=True)
+            # Definir as colunas da tabela
+            colunas = ["Categoria", "Nome do Produto", "Voltagem", "Preço Principal", 
+                      "Preço à Vista", "Qtd. Parcelas", "Valor Parcela", "Link da Imagem"]
             
-            # Detalhes dos produtos por categoria
+            # Larguras das colunas (ajustadas para o formato paisagem)
+            larguras = [25, 80, 20, 25, 25, 20, 25, 60]
+            
+            # Altura da linha
+            altura_linha = 8
+            
+            # Cabeçalho da tabela
+            pdf.set_font("Arial", "B", 8)
+            pdf.set_fill_color(200, 200, 200)  # Cinza claro para o cabeçalho
+            
+            for i, coluna in enumerate(colunas):
+                pdf.cell(larguras[i], altura_linha, coluna, border=1, fill=True)
+            pdf.ln()
+            
+            # Dados dos produtos
+            pdf.set_font("Arial", "", 7)  # Fonte menor para caber mais conteúdo
+            
+            # Agrupar produtos por categoria
+            produtos_por_categoria = {}
+            for produto in self.dados_produtos:
+                categoria = produto.get('Categoria', 'Sem Categoria')
+                if categoria not in produtos_por_categoria:
+                    produtos_por_categoria[categoria] = []
+                produtos_por_categoria[categoria].append(produto)
+            
+            # Iterar por categoria
             for categoria in self.categorias:
-                produtos_categoria = [p for p in self.dados_produtos if p['Categoria'] == categoria]
-                if produtos_categoria:
-                    pdf.add_page()
-                    pdf.set_font("Arial", "B", 14)
-                    pdf.cell(0, 10, txt=f"Categoria: {categoria}", ln=True)
-                    pdf.ln(5)
+                if categoria in produtos_por_categoria:
+                    produtos_categoria = produtos_por_categoria[categoria]
                     
-                    for idx, produto in enumerate(produtos_categoria, 1):
-                        pdf.set_font("Arial", "B", 12)
-                        pdf.cell(0, 8, txt=f"Produto {idx}: {produto['Nome do Produto']}", ln=True)
+                    # Adicionar uma linha de categoria
+                    pdf.set_font("Arial", "B", 8)
+                    pdf.set_fill_color(230, 230, 230)  # Cinza mais claro para separador de categoria
+                    pdf.cell(0, altura_linha, f"Categoria: {categoria} ({len(produtos_categoria)} produtos)", 
+                             border=1, ln=True, fill=True)
+                    pdf.set_font("Arial", "", 7)
+                    
+                    # Iterar pelos produtos da categoria
+                    for produto in produtos_categoria:
+                        # Verificar se precisa adicionar uma nova página
+                        if pdf.get_y() > 180:  # Ajustar conforme necessário
+                            pdf.add_page("L")
+                            # Recriar cabeçalho
+                            pdf.set_font("Arial", "B", 8)
+                            pdf.set_fill_color(200, 200, 200)
+                            for i, coluna in enumerate(colunas):
+                                pdf.cell(larguras[i], altura_linha, coluna, border=1, fill=True)
+                            pdf.ln()
+                            pdf.set_font("Arial", "", 7)
                         
-                        pdf.set_font("Arial", "", 10)
-                        pdf.cell(0, 8, txt=f"Categoria: {produto['Categoria']}", ln=True)
-                        if 'Modelo' in produto:
-                            pdf.cell(0, 8, txt=f"Modelo: {produto['Modelo']}", ln=True)
+                        # Categoria
+                        pdf.cell(larguras[0], altura_linha, produto.get('Categoria', 'N/A'), border=1)
                         
-                        # Adicionar link da imagem com texto amigável
-                        img_url = produto.get('URL Pública da Imagem', '')
+                        # Nome do Produto (pode ser longo, então limitamos e adicionamos ...)
+                        nome_produto = produto.get('Nome do Produto', 'N/A')
+                        if len(nome_produto) > 45:  # Limitar tamanho
+                            nome_produto = nome_produto[:42] + "..."
+                        pdf.cell(larguras[1], altura_linha, nome_produto, border=1)
+                        
+                        # Voltagem
+                        pdf.cell(larguras[2], altura_linha, produto.get('Voltagem', 'N/A'), border=1)
+                        
+                        # Preço Principal
+                        pdf.cell(larguras[3], altura_linha, produto.get('Preço Principal', 'N/A'), border=1)
+                        
+                        # Preço à Vista
+                        pdf.cell(larguras[4], altura_linha, produto.get('Preço à Vista', 'N/A'), border=1)
+                        
+                        # Qtd. Parcelas
+                        pdf.cell(larguras[5], altura_linha, produto.get('Qtd. Parcelas', 'N/A'), border=1)
+                        
+                        # Valor Parcela
+                        pdf.cell(larguras[6], altura_linha, produto.get('Valor Parcela', 'N/A'), border=1)
+                        
+                        # Link da Imagem
+                        img_url = produto.get('URL Pública da Imagem', 'N/A')
                         if img_url and img_url != 'N/A':
-                            # Texto explicativo acima do link
-                            pdf.set_font("Arial", "", 10)
-                            pdf.set_text_color(0, 0, 0)  # Preto
-                            pdf.cell(0, 8, txt="Segue link da foto do produto:", ln=True)
+                            # Configurar fonte e cor para o link
+                            pdf.set_font("Arial", "U", 6)  # Sublinhado, fonte menor
+                            pdf.set_text_color(0, 0, 255)  # Azul
                             
-                            # Mostrar o link explícito
-                            pdf.set_font("Arial", "BU", 8)  # Negrito e Sublinhado, fonte menor para caber o link
-                            pdf.set_text_color(0, 0, 255)   # Azul
+                            # Texto abreviado para o link
+                            texto_link = img_url
+                            if len(texto_link) > 30:
+                                texto_link = texto_link[:27] + "..."
                             
-                            # Adicionar o link explícito
-                            pdf.cell(0, 8, txt=img_url, link=img_url, ln=True)
+                            # Adicionar célula com link
+                            pdf.cell(larguras[7], altura_linha, texto_link, border=1, link=img_url)
                             
                             # Restaurar fonte e cor
                             pdf.set_text_color(0, 0, 0)  # Preto
-                            pdf.set_font("Arial", "", 10)  # Normal
+                            pdf.set_font("Arial", "", 7)  # Normal
                         else:
-                            pdf.cell(0, 8, txt="Foto do produto: Não disponível", ln=True)
+                            pdf.cell(larguras[7], altura_linha, "N/A", border=1)
                         
-                        # Adicionar outras informações do produto
-                        for chave, valor in produto.items():
-                            if chave not in ['Nome do Produto', 'Categoria', 'Modelo', 'URL da Imagem', 'URL Pública da Imagem']:
-                                pdf.cell(0, 8, txt=f"{chave}: {valor}", ln=True)
-                        
-                        pdf.ln(8)  # Espaço entre produtos
-                        
-                        # Adicionar uma linha separadora entre produtos
-                        pdf.line(10, pdf.get_y(), 200, pdf.get_y())
-                        pdf.ln(8)
+                        pdf.ln()
             
             # Salvar o PDF
             pdf_path = os.path.join(os.getcwd(), filename)
@@ -839,6 +880,7 @@ class LeverosRPA:
             
         except Exception as e:
             logging.error(f"Erro ao salvar PDF: {str(e)}")
+            logging.error(traceback.format_exc())
     
     def executar(self):
         """Executa o fluxo completo do RPA"""
